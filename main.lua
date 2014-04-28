@@ -5,10 +5,12 @@ require 'cutorch'
 require 'nn'
 require 'prof-torch'
 
+torch.manualSeed(42)
+
 batch_size = 128
 momentum = 0.9
-weight_decay = 0.0000001
-learning_rate = 0.001
+weight_decay = 0 --0.0000001
+learning_rate = 0.0005
 learning_rate_decay = 1
 
 X = torch.FloatTensor(torch.FloatStorage('data_gcn_whitened/X')):resize(60000, 3, 32, 32)
@@ -60,20 +62,32 @@ grad_momentum = torch.CudaTensor(grad_parameters:nElement()):zero()
 start = prof.time()
 for epoch = 1,100 do
    for t = 1,50000 - batch_size,batch_size do
+
+      print(t, net:get(2).weight:mean())
+      if t > 1 then
+         os.exit()
+      end
+
+      grad_parameters:zero()
       X_batch = X:narrow(1, t, batch_size)
       y_batch = y:narrow(1, t, batch_size)
       net:forward(X_batch)
       measure:forward(net.output, y_batch)
       measure:backward(net.output, y_batch)
-      net:zeroGradParameters()
       net:backward(X_batch, measure.gradInput)
+      print(net:get(10).gradInput:mean())
 
       grad_momentum:mul(momentum):add(-weight_decay * learning_rate, parameters):add(-learning_rate, grad_parameters)
       parameters:add(grad_momentum)
       learning_rate = learning_rate * learning_rate_decay
+
+      collectgarbage()
+      cutorch.synchronize()
    end
 
    if epoch % 1 == 0 then
+      -- torch.save(('net/%05d'):format(epoch), net)
+
       err = 0
       for t = 50001,60000 - batch_size,batch_size do
          X_batch = X:narrow(1, t, batch_size)
